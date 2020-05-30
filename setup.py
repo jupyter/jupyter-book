@@ -1,50 +1,77 @@
 from setuptools import setup, find_packages
-import os
-import os.path as op
-from glob import glob
-from jupyter_book import __version__
+from pathlib import Path
 
-# Location of the template files we use for cloning
-template_files = glob(
-    op.join('jupyter_book', 'book_template', '**', '*'), recursive=True)
-template_files += glob(op.join('jupyter_book', 'minimal',
-                               '**', '*'), recursive=True)
-template_files = [ii.replace('jupyter_book' + os.sep, '', 1)
-                  for ii in template_files]
-PACKAGE_DATA = {"jupyter_book": template_files}
+text = Path("./jupyter_book/__init__.py").read_text()
+for line in text.split("\n"):
+    if "__version__" in line:
+        break
+version = line.split("= ")[-1].strip('"')
 
-# Source dependencies from requirements.txt file.
-with open('requirements.txt', 'r') as f:
-    lines = f.readlines()
-    install_packages = [line.strip() for line in lines]
-
+# Documentation requirements
+path_doc_reqs = Path(__file__).parent.joinpath("docs", "requirements.txt")
+doc_reqs = [
+    ii for ii in path_doc_reqs.read_text().split("\n") if not ii.startswith("#")
+]
+test_reqs = [
+    "coverage",
+    "pytest>=3.6,<4",
+    "pytest-cov",
+    "beautifulsoup4",
+    "matplotlib",
+    "pytest-regressions",
+    "jupytext",
+    "altair",
+    "sphinx_click",
+    "sphinx_tabs",
+    "pyppeteer",
+] + doc_reqs
 setup(
-    name='jupyter-book',
-    version=__version__,
-    install_requires=install_packages,
-    python_requires='>=3.4',
-    author='Project Jupyter Contributors',
-    author_email='jupyter@googlegroups.com',
-    url='https://jupyter.org/jupyter-book/',
+    name="jupyter-book",
+    version=version,
+    python_requires=">=3.6",
+    author="Executable Book Project",
+    author_email="jupyter@googlegroups.com",
+    url="https://executablebooks.org/",
     project_urls={
-        'Documentation': 'https://jupyter.org/jupyter-book',
-        'Funding': 'https://jupyter.org/about',
-        'Source': 'https://github.com/jupyter/jupyter-book/',
-        'Tracker': 'https://github.com/jupyter/jupyter-book/issues',
+        "Documentation": "https://jupyterbook.org",
+        "Funding": "https://executablebooks.org",
+        "Source": "https://github.com/executablebooks/jupyter-book/",
+        "Tracker": "https://github.com/executablebooks/jupyter-book/issues",
     },
     # this should be a whitespace separated string of keywords, not a list
     keywords="reproducible science environments scholarship notebook",
-    description="Jupyter Book: Create an online book with Jupyter Notebooks"
-                " and Jekyll",
-    long_description=open('./README.md', 'r').read(),
-    long_description_content_type='text/markdown',
-    license='BSD',
+    description="Jupyter Book: Create an online book with Jupyter Notebooks",
+    long_description=open("./README.md", "r").read(),
+    long_description_content_type="text/markdown",
+    license="BSD",
     packages=find_packages(),
-    use_package_data=True,
-    package_data=PACKAGE_DATA,
+    install_requires=[
+        "pyyaml",
+        "docutils>=0.15",
+        "sphinx<3",
+        "myst-nb",
+        "click",
+        "setuptools",
+        "nbformat",
+        "nbconvert",
+        "nbclient",
+        "sphinx_togglebutton",
+        "sphinx-copybutton",
+        "sphinxcontrib-bibtex",
+        "sphinx_book_theme",
+    ],
+    extras_require={
+        "code_style": ["flake8<3.8.0,>=3.7.0", "black", "pre-commit==1.17.0"],
+        "sphinx": doc_reqs,
+        "testing": test_reqs,
+        "pdfhtml": "pyppeteer",
+    },
     entry_points={
-        'console_scripts': [
-            'jupyter-book = jupyter_book.main:main',
+        "console_scripts": [
+            "jb = jupyter_book.commands:main",
+            "jupyter-book = jupyter_book.commands:main",
         ]
     },
+    package_data={"jupyter_book": ["default_config.yml", "book_template/*"]},
+    include_package_data=True,
 )

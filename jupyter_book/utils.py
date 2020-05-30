@@ -1,130 +1,114 @@
-"""Utility functions for Jupyter Book."""
+from pathlib import Path
+from textwrap import dedent
+from jupyter_client.kernelspec import find_kernel_specs
 
-import string
-import argparse
-import os
-import os.path as op
+SUPPORTED_FILE_SUFFIXES = [".ipynb", ".md", ".markdown", ".myst", ".Rmd", ".py"]
+
+
+def _filename_to_title(filename, split_char="_"):
+    """Convert a file path into a more readable title."""
+    filename = Path(filename).with_suffix("").name
+    filename_parts = filename.split(split_char)
+    try:
+        # If first part of the filename is a number for ordering, remove it
+        int(filename_parts[0])
+        if len(filename_parts) > 1:
+            filename_parts = filename_parts[1:]
+    except Exception:
+        pass
+    title = " ".join(ii.capitalize() for ii in filename_parts)
+    return title
+
 
 ##############################################################################
 # CLI utilities
 
-
-def print_color(msg, style):
-    endc = '\033[0m'
-    bcolors = dict(blue='\033[94m',
-                   green='\033[92m',
-                   orange='\033[93m',
-                   red='\033[91m',
-                   bold='\033[1m',
-                   underline='\033[4m')
-    print(bcolors[style] + msg + endc)
-
-
-def print_message_box(msg):
-    border = '================================================================================'
-    print_color('\n\n' + border + '\n\n', 'green')
-    print(msg)
-    print_color('\n\n' + border + '\n\n', 'green')
+border = "=" * 79
+endc = "\033[0m"
+bcolors = dict(
+    blue="\033[94m",
+    green="\033[92m",
+    orange="\033[93m",
+    red="\033[91m",
+    bold="\033[1m",
+    underline="\033[4m",
+)
 
 
-def _error(msg):
-    msg = '\n\n\033[91m==========\033[0m\n{}\n\033[91m==========\033[0m\n'.format(
-        msg)
-    return ValueError(msg)
+def _color_message(msg, style):
+    return bcolors[style] + msg + endc
 
 
-def str2bool(msg):
-    if msg.lower() in ('yes', 'true', 't', 'y', '1'):
-        return True
-    elif msg.lower() in ('no', 'false', 'f', 'n', '0'):
-        return False
-    else:
-        raise argparse.ArgumentTypeError(
-            'Boolean value expected. Got: {}'.format(msg))
+def _message_box(msg, color="green", doprint=True):
+    # Prepare the message so the indentation is the same as the box
+    msg = dedent(msg)
+
+    # Color and create the box
+    border_colored = _color_message(border, color)
+    box = """
+    {border_colored}
+
+    {msg}
+
+    {border_colored}
+    """
+    box = dedent(box).format(msg=msg, border_colored=border_colored)
+    if doprint is True:
+        print(box)
+    return box
+
+
+def _error(msg, kind=None):
+    if kind is None:
+        kind = ValueError
+    box = _message_box(msg, color="red", doprint=False)
+    raise kind(box)
+
 
 ##############################################################################
-# Book conversion formatting
+# MyST + Jupytext
 
 
-ALLOWED_CHARACTERS = string.ascii_letters + '-_/.' + string.digits
+def init_myst_file(path, kernel, verbose=True):
+    """Initialize a file with a Jupytext header that marks it as MyST markdown.
 
+    Parameters
+    ----------
+    path : string
+        A path to a markdown file to be initialized for Jupytext
+    kernel : string
+        A kernel name to add to the markdown file. See a list of kernel names with
+        `jupyter kernelspec list`.
+    """
+    try:
+        from jupytext.cli import jupytext
+    except ImportError:
+        raise ImportError(
+            "In order to use myst markdown features, " "please install jupytext first."
+        )
+    if not Path(path).exists():
+        raise FileNotFoundError(f"Markdown file not found: {path}")
 
-def _split_yaml(lines):
-    yaml0 = None
-    for ii, iline in enumerate(lines):
-        iline = iline.strip()
-        if yaml0 is None:
-            if iline == '---':
-                yaml0 = ii
-            elif iline:
-                break
-        elif iline == '---':
-            return lines[yaml0 + 1:ii], lines[ii + 1:]
-    return [], lines
+    kernels = list(find_kernel_specs().keys())
+    kernels_text = "\n".join(kernels)
+    if kernel is None:
+        if len(kernels) > 1:
+            _error(
+                "There are multiple kernel options, so you must give one manually."
+                " with `--kernel`\nPlease specify one of the following kernels.\n\n"
+                f"{kernels_text}"
+            )
+        else:
+            kernel = kernels[0]
 
-
-def _check_url_page(url_page, content_folder_name):
-    """Check that the page URL matches certain conditions."""
-    if not all(ii in ALLOWED_CHARACTERS for ii in url_page):
+    if kernel not in kernels:
         raise ValueError(
-            "Found unsupported character in filename: {}".format(url_page))
-    if '.' in os.path.splitext(url_page)[-1]:
-        raise _error("A toc.yml entry links to a file directly. You should strip the file suffix.\n"
-                     "Please change {} to {}".format(url_page, os.path.splitext(url_page)[0]))
-    if any(url_page.startswith(ii) for ii in [content_folder_name, os.sep + content_folder_name]):
-        raise ValueError("It looks like you have a page URL that starts with your content folder's name."
-                         "page URLs should be *relative* to the content folder. Here is the page URL: {}".format(url_page))
+            f"Did not find kernel: {kernel}\nPlease specify one of the "
+            f"installed kernels:\n\n{kernels_text}"
+        )
 
+    args = (str(path), "-q", "--set-kernel", kernel, "--set-formats", "myst")
+    jupytext(args)
 
-def _prepare_toc(toc):
-    """Prepare the TOC for processing."""
-    # Drop toc items w/o links
-    toc = [ii for ii in toc if ii.get('url', None) is not None]
-    # Un-nest the TOC so it's a flat list
-    new_toc = []
-    for ii in toc:
-        sections = ii.pop('sections', None)
-        new_toc.append(ii)
-        if sections is None:
-            continue
-        for jj in sections:
-            subsections = jj.pop('subsections', None)
-            new_toc.append(jj)
-            if subsections is None:
-                continue
-            for kk in subsections:
-                new_toc.append(kk)
-    return new_toc
-
-
-def _prepare_url(url):
-    """Prep the formatting for a url."""
-    # Strip suffixes and prefixes of the URL
-    if not url.startswith('/'):
-        url = '/' + url
-
-    # Standardize the quotes character
-    url = url.replace('"', "'")
-
-    # Make sure it ends in "HTML"
-    if not url.endswith('.html'):
-        url = op.splitext(url)[0] + '.html'
-    return url
-
-
-def _clean_markdown_cells(ntbk):
-    """Clean up cell text of an nbformat NotebookNode."""
-    # Remove '#' from the end of markdown headers
-    for cell in ntbk.cells:
-        if cell.cell_type == "markdown":
-            cell_lines = cell.source.split('\n')
-            for ii, line in enumerate(cell_lines):
-                if line.startswith('#'):
-                    cell_lines[ii] = line.rstrip('#').rstrip()
-            cell.source = '\n'.join(cell_lines)
-    return ntbk
-
-
-def _file_newer_than(path1, path2):
-    """Check whether file at path1 is newer than path2."""
-    return os.stat(path1).st_mtime > os.stat(path2).st_mtime
+    if verbose:
+        print(f"Initialized file: {path}\nWith kernel: {kernel}")

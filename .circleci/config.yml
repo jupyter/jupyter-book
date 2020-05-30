@@ -1,184 +1,119 @@
-version: 2.1
+version: 2
 jobs:
-  # Build the site to store artifacts
-  doc:
-    docker:
-      - image: circleci/ruby:2.6
-    steps:
-      # Attach the built intermediate files
-      - checkout
-      - attach_workspace:
-          # Must be absolute path or relative path from working_directory
-          at: /tmp/workspace
-
-      # Copy over the built intermediate files
-      - copy_built_files
-
-      # Build the site's HTML w/ the base_url for CircleCI artifacts
-      - build_site:
-          build_args: --baseurl /0/html/
-
-      # Tell Circle to store the documentation output in a folder that we can access later
-      - store_artifacts:
-          path: jupyter_book/book_template/_site/
-          destination: html
-
-      - store_artifacts:
-          path: jupyter_book/book_template/_build/
-          destination: _build
-
-  # Deploy the built site to jupyter-book.github.io
-  deploy:
-    docker:
-      - image: circleci/ruby:2.6
-    steps:
-      - checkout
-      - attach_workspace:
-          # Must be absolute path or relative path from working_directory
-          at: /tmp/workspace
-
-      # Add deployment key fingerprint for CircleCI to use for a push
-      - add_ssh_keys:
-          fingerprints:
-            - "19:34:f0:15:b8:3a:e4:44:27:a8:e9:8b:b5:e4:48:a9"
-
-      # Copy over the built intermediate files
-      - copy_built_files
-
-      # Build the site so we have local files
-      - build_site:
-          build_args: ""
-
-      # Copying over built website to the live site
-      - run:
-          name: Copy built site to a folder to store
-          command: cp -r ./jupyter_book/book_template/_site ../_site
-
-      - run:
-          name: Change to gh-pages branch and replace w/ new site
-          command: |
-            git checkout gh-pages
-            rm -rf ./*
-            cp -r ../_site/* ./
-            touch ./.nojekyll
-
-      - run:
-          name: Commit results and push to gh-pages
-          command: |
-            git config --global user.email "choldgraf@berkeley.edu"
-            git config --global user.name "Chris Holdgraf"
-            git add -A
-            git commit -m "jekyll book web deploy"
-            git push -f origin gh-pages:gh-pages
-
-  run_tests:
+  tests:
     docker:
       - image: circleci/python:3.6-stretch
     steps:
       # Get our data and merge with upstream
       - run: sudo apt-get update
       - checkout
-      # Update our path
-      - run: echo "export PATH=~/.local/bin:$PATH" >> $BASH_ENV
-      # Restore cached files to speed things up
+
       - restore_cache:
           keys:
             - cache-pip
-      # Documentation-specific packages
-      - run: pip install --user flake8 pytest-cov matplotlib numpy pandas
-      - run: pip install --user -r requirements.txt
-      - run: pip install --user -e ./  # Install Jupyter Book CLI
 
-      # Cache some files for a speedup in subsequent builds
+      - run: pip install --user .[testing]
       - save_cache:
           key: cache-pip
           paths:
             - ~/.cache/pip
-      # Run tests
-      - run:
-          name: Tests
-          command: |
-            flake8 --count jupyter_book
-            pytest --cov=./
 
-      # Run code coverage
+      # Make sure tests build in CircleCI (so we can preview w/ SSH if we wish)
       - run:
-          name: codecov deploy
-          command: bash <(curl -s https://codecov.io/bash)
+          name: Run pytest
+          command: pytest --ignore=tests/test_pdf.py
 
-      # If tests pass, build the site itself
-      - run:
-          name: Build site intermediate files
-          command: jupyter-book build jupyter_book/book_template/
+  pdfhtml:
+    docker:
+      - image: circleci/python:3.6-stretch
+    steps:
+      - run: sudo apt-get update
+      - checkout
 
-      # Persist the specified paths (see https://circleci.com/docs/2.0/workflows/#using-workspaces-to-share-data-among-jobs)
-      - persist_to_workspace:
-          root: .
+      - restore_cache:
+          keys:
+            - cache-pip
+
+      - run: pip install --user .[testing,pdfhtml]
+      - save_cache:
+          key: cache-pip
           paths:
-            - jupyter_book/book_template/_build/
+            - ~/.cache/pip
 
+      - run:
+          name: Install Headless Chrome dependencies
+          command: |
+            sudo apt-get install -yq $(cat .github/workflows/pyppeteer_reqs.txt)
 
+      - run:
+          name: Install chromium
+          command: pyppeteer-install
 
-# Tell CircleCI to use this workflow when it builds the site
+      - run:
+          name: Run pytest for pdfhtml
+          command: pytest tests/test_pdf.py::test_pdfhtml
+
+      # Build a PDF of the book to view as an artifact
+      - run:
+          name: PDF from HTML
+          command: jb build docs --builder pdfhtml
+
+      - store_artifacts:
+          path: docs/_build/pdf/book.pdf
+          destination: pdf
+
+  pdflatex:
+    docker:
+      - image: circleci/python:3.6-stretch
+    steps:
+      - run: sudo apt-get update
+      - checkout
+
+      - restore_cache:
+          keys:
+            - cache-pip
+      - run: pip install --user .[testing,pdflatex]
+      - save_cache:
+          key: cache-pip
+          paths:
+            - ~/.cache/pip
+
+      - restore_cache:
+          keys:
+            - texlive
+      - run:
+          name: Install texlive
+          command: |
+            bash scripts/install_latex.sh
+            echo 'export PATH=/tmp/texlive/bin/x86_64-linux:$PATH' >> $BASH_ENV
+            source /home/circleci/.bashrc
+      - save_cache:
+          key: texlive
+          paths:
+            - /tmp/texlive
+
+      - run:
+          name: Run pytest for pdflatex
+          command: pytest tests/test_pdf.py::test_pdflatex
+
+      # Build quantecon-mini-example project as a test case
+      # TODO: revert this to building docs/ when we've added support for svg, gif, etc
+      - run:
+          name: PDF from LaTeX
+          command: |
+            git clone https://github.com/executablebooks/quantecon-mini-example.git
+            cd quantecon-mini-example/
+            pip install -r requirements.txt
+            jb build mini_book --builder pdflatex
+
+      - store_artifacts:
+          path: quantecon-mini-example/mini_book/_build/latex/book.pdf
+          destination: pdflatex
+
 workflows:
   version: 2
   default:
     jobs:
-      - run_tests:
-          filters:
-            branches:
-              ignore:
-                - gh-pages
-      - doc:
-          requires:
-            - run_tests
-          filters:
-            branches:
-              ignore:
-                - gh-pages
-      - deploy:
-          requires:
-            - run_tests
-          filters:
-              branches:
-                only:
-                  - master
-                ignore:
-                  - gh-pages
-
-commands:
-  copy_built_files:
-    description: "Copy the build site files so we can build the HTML"
-    steps:
-      # Grab the the built intermediate files from the last step
-      - run:
-          name: Copy over built site files
-          command: |
-            rm -rf jupyter_book/book_template/_build
-            cp -r /tmp/workspace/jupyter_book/book_template/_build ./jupyter_book/book_template
-
-  build_site:
-    description: "Build the site with Jekyll"
-    parameters:
-      build_args:
-        type: string
-        default: ""
-    steps:
-      - checkout
-      - restore_cache:
-          keys:
-            - rails-demo-bundle-v2-{{ checksum "jupyter_book/book_template/Gemfile.lock" }}
-            - rails-demo-bundle-v2-
-
-      - run: gem install bundler
-      - run: cd jupyter_book/book_template && bundle install
-
-      # Store bundle cache
-      - save_cache:
-          key: rails-demo-bundle-v2-{{ checksum "jupyter_book/book_template/Gemfile.lock" }}
-          paths:
-            - vendor/bundle
-
-      - run:
-          name: Build the website
-          command: cd jupyter_book/book_template && bundle exec jekyll build << parameters.build_args >>
+      - tests
+      - pdfhtml
+      - pdflatex

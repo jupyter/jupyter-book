@@ -1,9 +1,0 @@
-pytest
-ruamel.yaml
-tqdm
-numpy
-pyyaml
-nbformat
-setuptools
-jupyter_contrib_nbextensions
-jupytext
