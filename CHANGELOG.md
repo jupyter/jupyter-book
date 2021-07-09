@@ -1,5 +1,26 @@
 # Change Log
 
+## v0.11.2
+
+This release introduces [sphinx-multitoc-numbering](https://github.com/executablebooks/sphinx-multitoc-numbering) for consistent numbering across a `part/chapter` book structure. It also includes improvements to `pdflatex` output, updates to the documentation and various maintenance tasks.
+
+### New
+
+- [html] Add `sphinx-multitoc-numbering` package to provide consistent numbering when organising a book by `parts` and `chapters`.
+  This is enabled by **default*** but can be switched off in [the _config.yml file](https://jupyterbook.org/structure/configure.html?highlight=sphinx%20multitoc%20numbering#number-your-chapters-and-sections). [[PR #1326](https://github.com/executablebooks/jupyter-book/pull/1326)]
+
+### Upgrade
+
+- [pdflatex] UPGRADE: Upgrade to `sphinx-jupyterbook-latex==0.4.2` which enables support for the `tableofcontents` directives and improvements
+  to `pdf` compilation via `LaTeX`.
+
+### Docs and Maintenance
+
+Various updates to the docs have been made since `v0.11.1`. Many thanks to @choldgraf, @ria-rivera, @fortierq, @lexnederbragt
+
+- MAINT: Removing unnecesary dependencies [[PR #1375](https://github.com/executablebooks/jupyter-book/pull/1375)]
+- MAINT: Switched from `jupyterbook-latex` to `sphinx-jupyterbook-latex` package for LaTeX support [[PR #1340](https://github.com/executablebooks/jupyter-book/pull/1340)]
+
 ## v0.11.1
 
 This release included two minor patches brought in via updates to `sphinx-external-toc` and `jupyterbook-latex`.
